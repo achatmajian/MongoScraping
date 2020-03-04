@@ -1,82 +1,110 @@
+
 var express = require("express");
 var logger = require("morgan");
 var mongoose = require("mongoose");
 
+//Scraping tools
 var axios = require("axios");
 var cheerio = require("cheerio");
 
-var db = require("./models");
+//Require all models
+var db = require("./models/index.js");
+
 var PORT = 3000;
+
+// Initialize Express
 var app = express();
 
+// Use morgan logger for logging requests
 app.use(logger("dev"));
+// Parse request body as JSON
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+// Make public a static folder
 app.use(express.static("public"));
 
-mongoose.connect("mongodb://localhost/unit18Populater", { useNewUrlParser: true });
+// Connect to the Mongo DB
+var MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost/mongoHeadlines";
 
+mongoose.connect(MONGODB_URI);
+
+
+// Routes
+var results = [];
+function empty() {
+    results = [];
+}
+// A GET route for scraping the Vice Election 2020 website
 app.get("/scrape", function(req, res) {
-  axios.get("https://techcrunch.com/").then(function(response) {
-    var $ = cheerio.load(response.data);
+    empty();
+    // Grab the body of the html with axios
+    axios.get("https://www.techcrunch.com").then(function(response) {
+        // Load into cheerio and save it to $
+        var $ = cheerio.load(response.data);
+        console.log($);
+        // Grab everything under the className topics-card__heading-link
+            $(".post-block__title__link").each(function(i, element) {
+              console.log(element);
+                // Add the text and href of the links
+                var title = $(element).text();
+                console.log(title);
+                var link = $(element).attr("href");
+                
+                results.push({
+                    title: title,
+                    link: link
+                })
+            });
 
-    $("article h2").each(function(i, element) {
-      var result = {};
-
-      result.title = $(this)
-        .children("a")
-        .text();
-      result.link = $(this)
-        .children("a")
-        .attr("href");
-
-      db.Article.create(result)
-        .then(function(dbArticle) {
-          console.log(dbArticle);
-        })
-        .catch(function(err) {
-          console.log(err);
-        });
+            db.Article.create(results)
+                    .then(function(dbArticle) {
+                        console.log(dbArticle);
+                    })
+                    .catch(function(err) {
+                        console.log(err);
+                    });
+        
+        res.send("Scrape Complete");
+        console.log(results);        
     });
-
-    res.send("Scrape Complete");
-  });
 });
 
 app.get("/articles", function(req, res) {
-  db.Article.find({})
-    .then(function(dbArticle) {
-      res.json(dbArticle);
-    })
-    .catch(function(err) {
-      res.json(err);
-    });
+    db.Article.find({})
+        .then(function(dbArticle) {
+            res.json(dbArticle);
+        })
+        .catch(function(err) {
+            res.json(err);
+        });
 });
 
 app.get("/articles/:id", function(req, res) {
-  db.Article.findOne({ _id: req.params.id })
+
+    db.Article.findOne({_id: req.params.id })
     .populate("note")
     .then(function(dbArticle) {
-      res.json(dbArticle);
+        res.json(dbArticle);
     })
     .catch(function(err) {
-      res.json(err);
+        res.json(err);
     });
 });
 
 app.post("/articles/:id", function(req, res) {
-  db.Note.create(req.body)
-    .then(function(dbNote) {
-      return db.Article.findOneAndUpdate({ _id: req.params.id }, { note: dbNote._id }, { new: true });
-    })
-    .then(function(dbArticle) {
-      res.json(dbArticle);
-    })
-    .catch(function(err) {
-      res.json(err);
-    });
-});
+    db.Note.create(req.body)
+        .then(function(dbNote) {
+            return db.Article.findOneAndUpdate({ _id: req.params.id }, { note: dbNote._id }, { new: true });
+        })
+        .then(function(dbArticle) {
+            res.json(dbArticle);
+        })
+        .catch(function(err) {
+            res.json(err);
+        })
+})
 
+// Start server
 app.listen(PORT, function() {
-  console.log("App running on port " + PORT + "!");
+    console.log("App running on port " + PORT + "!");
 });
